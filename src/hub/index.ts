@@ -4,7 +4,9 @@ import * as path from "node:path";
 import { groupsDir } from "../data-dir";
 import { readLines, writeLine } from "../framing";
 import { makeLogger } from "../logger";
-import { ClientMsgSchema, type ServerMsg } from "../protocol";
+import { ClientMsgSchema, ServerMsgSchema, type ServerMsg } from "../protocol";
+import { createBridge, type Bridge } from "./bridge";
+import { loadBridgeConfig } from "./bridge-config";
 import { createGroupStore } from "./groups";
 import {
     handleAsk,
@@ -70,6 +72,9 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
     const pendingAsks = createPendingAsks(opts.pendingAsks);
     const groups = createGroupStore(groupsDir());
 
+    const bridgeConfig = loadBridgeConfig();
+    const bridge: Bridge | null = bridgeConfig ? createBridge(bridgeConfig, registry) : null;
+
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const cancelIdleTimer = () => {
         if (idleTimer) {
@@ -97,16 +102,54 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
 
     const sendTo = (name: string, msg: ServerMsg): boolean => {
         const s = registry.getSocket(name);
-        if (!s) return false;
-        try {
-            writeLine(s, msg);
-            return true;
-        } catch {
-            return false;
+        if (s) {
+            try {
+                writeLine(s, msg);
+                return true;
+            } catch {
+                return false;
+            }
         }
+        if (bridge) {
+            const route = bridge.getRoute(name);
+            if (route) {
+                try {
+                    writeLine(route.socket, {
+                        type: "bridge_forward",
+                        target_peer: route.localName,
+                        origin_hub: bridge.hubId,
+                        wrapped: msg,
+                    });
+                    return true;
+                } catch {
+                    return false;
+                }
+            }
+        }
+        return false;
     };
 
-    const ctx: HubContext = { registry, pendingAsks, defaultAskTimeoutMs, sendTo, groups };
+    const ctx: HubContext = {
+        registry,
+        pendingAsks,
+        defaultAskTimeoutMs,
+        sendTo,
+        groups,
+        onLocalPeerJoin: bridge
+            ? (name: string) => {
+                  const entry = registry.list().find((p) => p.name === name);
+                  if (!entry) return;
+                  if (!bridge) return;
+                  for (const [hubId] of bridge.connections) {
+                      bridge.sendBridgeMsg(hubId, {
+                          type: "bridge_peer_update",
+                          action: "join",
+                          peer: entry,
+                      });
+                  }
+              }
+            : undefined,
+    };
 
     const handleLine = (line: string, socket: net.Socket, send: (msg: ServerMsg) => void) => {
         let raw: unknown;
@@ -207,6 +250,15 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
                 for (const { askId, caller } of peerGone) {
                     sendTo(caller, { type: "err", code: "peer_gone", ask_id: askId });
                 }
+                if (bridge && !name.includes("@")) {
+                    for (const [hubId] of bridge.connections) {
+                        bridge.sendBridgeMsg(hubId, {
+                            type: "bridge_peer_update",
+                            action: "leave",
+                            name,
+                        });
+                    }
+                }
             }
             scheduleIdleTimerIfEmpty();
         });
@@ -218,6 +270,79 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
     fs.chmodSync(socketPath, 0o600);
     log.info("listen_start", { socketPath });
     scheduleIdleTimerIfEmpty();
+
+    if (bridge) {
+        bridge.setForwardHandler((fwd) => {
+            const localSocket = registry.getSocket(fwd.target_peer);
+            if (!localSocket) {
+                log.warn("bridge_forward_miss", {
+                    target: fwd.target_peer,
+                    origin_hub: fwd.origin_hub,
+                });
+                return;
+            }
+            const wrapped = { ...fwd.wrapped } as Record<string, unknown>;
+
+            if (typeof wrapped.from === "string") {
+                const baseName = wrapped.from.split("@")[0];
+                wrapped.from = `${baseName}@${fwd.origin_hub}`;
+            }
+
+            if (wrapped.type === "incoming_ask" && typeof wrapped.ask_id === "string") {
+                const askId = wrapped.ask_id as string;
+                const threadId = typeof wrapped.thread_id === "string" ? wrapped.thread_id : "";
+                const askCaller = wrapped.from as string;
+                pendingAsks.create(
+                    askId,
+                    { caller: askCaller, target: fwd.target_peer, thread_id: threadId },
+                    24 * 60 * 60 * 1000,
+                    () => {},
+                );
+            }
+
+            if (wrapped.type === "incoming_reply" && typeof wrapped.ask_id === "string") {
+                const askId = wrapped.ask_id as string;
+                const peeked = pendingAsks.peek(askId);
+                if (!peeked) return;
+                if (!peeked.target.includes("@")) return;
+                pendingAsks.resolve(askId);
+            }
+
+            if (wrapped.type === "err" && typeof wrapped.ask_id === "string") {
+                const askId = wrapped.ask_id as string;
+                const peeked = pendingAsks.peek(askId);
+                if (!peeked || !peeked.target.includes("@")) return;
+                pendingAsks.resolve(askId);
+            }
+
+            const validated = ServerMsgSchema.safeParse(wrapped);
+            if (!validated.success) {
+                log.warn("bridge_forward_invalid_wrapped", {
+                    target: fwd.target_peer,
+                    origin_hub: fwd.origin_hub,
+                });
+                return;
+            }
+            try {
+                writeLine(localSocket, validated.data);
+            } catch (e) {
+                log.error("bridge_forward_write_err", {
+                    target: fwd.target_peer,
+                    err: e instanceof Error ? e.message : String(e),
+                });
+            }
+        });
+        bridge.setOnBridgeDisconnect((hubId) => {
+            const suffix = `@${hubId}`;
+            const { peerGone } = pendingAsks.cleanupByTargetSuffix(suffix);
+            for (const { askId, caller } of peerGone) {
+                sendTo(caller, { type: "err", code: "peer_gone", ask_id: askId });
+            }
+            pendingAsks.cleanupByCallerSuffix(suffix);
+        });
+        bridge.listen();
+        bridge.connectToAllPeers();
+    }
 
     const sweepIntervalMs = opts.sweepIntervalMs ?? 30_000;
     const sweepProbeTimeoutMs = opts.sweepProbeTimeoutMs ?? 1000;
@@ -251,14 +376,15 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
     }
 
     return {
-        close: () =>
-            new Promise<void>((resolve) => {
-                if (sweepTimer !== null) {
-                    clearInterval(sweepTimer);
-                    sweepTimer = null;
-                }
-                cancelIdleTimer();
-                pendingAsks.clearAll();
+        close: async () => {
+            if (sweepTimer !== null) {
+                clearInterval(sweepTimer);
+                sweepTimer = null;
+            }
+            cancelIdleTimer();
+            pendingAsks.clearAll();
+            await bridge?.close();
+            await new Promise<void>((resolve) => {
                 server.close(() => {
                     try {
                         fs.unlinkSync(socketPath);
@@ -270,6 +396,7 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
                         s.destroy();
                     } catch {}
                 }
-            }),
+            });
+        },
     };
 }

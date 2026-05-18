@@ -26,6 +26,10 @@ export type PeerRegistry = ReturnType<typeof createPeerRegistry>;
 export function createPeerRegistry() {
     const peers = new Map<string, PeerEntry>();
     const nameToSocket = new Map<string, net.Socket>();
+    const remotePeers = new Map<
+        string,
+        { hub_id: string; localName: string; cwd: string; git_branch: string; last_seen: number }
+    >();
     const socketToName = new Map<net.Socket, string>();
     const pendingProbes = new Map<string, (alive: boolean) => void>();
     const registerInProgress = new Set<string>();
@@ -172,6 +176,46 @@ export function createPeerRegistry() {
         return name;
     }
 
+    const MAX_REMOTE_PEERS_PER_HUB = 500;
+
+    function addRemotePeer(
+        hubId: string,
+        peer: { name: string; cwd: string; git_branch: string; last_seen: number },
+    ): void {
+        const currentCount = [...remotePeers.keys()].filter((k) => k.endsWith(`@${hubId}`)).length;
+        if (currentCount >= MAX_REMOTE_PEERS_PER_HUB) return;
+        const qualifiedName = `${peer.name}@${hubId}`;
+        remotePeers.set(qualifiedName, {
+            hub_id: hubId,
+            localName: peer.name,
+            cwd: peer.cwd,
+            git_branch: peer.git_branch,
+            last_seen: peer.last_seen,
+        });
+    }
+
+    function removeRemotePeer(hubId: string, name: string): void {
+        remotePeers.delete(`${name}@${hubId}`);
+    }
+
+    function removeAllRemotePeersForHub(hubId: string): void {
+        for (const key of [...remotePeers.keys()]) {
+            if (key.endsWith(`@${hubId}`)) remotePeers.delete(key);
+        }
+    }
+
+    function getRemotePeer(
+        qualifiedName: string,
+    ): { hub_id: string; localName: string } | undefined {
+        const entry = remotePeers.get(qualifiedName);
+        if (!entry) return undefined;
+        return { hub_id: entry.hub_id, localName: entry.localName };
+    }
+
+    function hasRemotePeer(qualifiedName: string): boolean {
+        return remotePeers.has(qualifiedName);
+    }
+
     function list(exceptName?: string): PeerRecord[] {
         const out: PeerRecord[] = [];
         for (const p of peers.values()) {
@@ -181,6 +225,15 @@ export function createPeerRegistry() {
                 cwd: p.cwd,
                 git_branch: p.git_branch,
                 last_seen: p.last_seen,
+            });
+        }
+        for (const [qualifiedName, r] of remotePeers) {
+            if (qualifiedName === exceptName) continue;
+            out.push({
+                name: qualifiedName,
+                cwd: r.cwd,
+                git_branch: r.git_branch,
+                last_seen: r.last_seen,
             });
         }
         return out;
@@ -227,7 +280,7 @@ export function createPeerRegistry() {
         handlePong,
         getSocket: (name: string) => nameToSocket.get(name),
         getName: (socket: net.Socket) => socketToName.get(socket),
-        hasName: (name: string) => nameToSocket.has(name),
+        hasName: (name: string) => nameToSocket.has(name) || remotePeers.has(name),
         isEmpty: () => peers.size === 0 && nameToSocket.size === 0,
         names: () => nameToSocket.keys(),
         sockets: () => socketToName.keys(),
@@ -235,5 +288,10 @@ export function createPeerRegistry() {
         leaveRoom,
         listRooms,
         getRoomMembers,
+        addRemotePeer,
+        removeRemotePeer,
+        removeAllRemotePeersForHub,
+        getRemotePeer,
+        hasRemotePeer,
     };
 }

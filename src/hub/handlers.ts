@@ -42,6 +42,7 @@ export type HubContext = {
     defaultAskTimeoutMs: number;
     sendTo: (name: string, msg: ServerMsg) => boolean;
     groups: GroupStore;
+    onLocalPeerJoin?: (name: string) => void;
 };
 
 type Send = (m: ServerMsg) => void;
@@ -64,6 +65,7 @@ export async function handleRegister(
     if (result === "already_registered") return send({ type: "err", code: "already_registered" });
     if (result === "name_taken") return send({ type: "err", code: "name_taken" });
     send({ type: "ack" });
+    ctx.onLocalPeerJoin?.(msg.name);
 }
 
 export function handleRename(
@@ -74,11 +76,14 @@ export function handleRename(
 ): void {
     const reqId = msg.req_id;
     const tail = reqId ? { req_id: reqId } : {};
+    const sanitizedName = sanitizeSessionName(msg.new_name);
+    if (sanitizedName === null)
+        return send({ type: "err", code: "bad_args", message: "invalid name", ...tail });
     const current = ctx.registry.getName(socket);
-    const result = ctx.registry.rename(socket, msg.new_name);
+    const result = ctx.registry.rename(socket, sanitizedName);
     if (result === "not_registered") return send({ type: "err", code: "not_registered", ...tail });
     if (result === "name_taken") return send({ type: "err", code: "name_taken", ...tail });
-    if (result === "ok" && current) ctx.pendingAsks.updateNameOnRename(current, msg.new_name);
+    if (result === "ok" && current) ctx.pendingAsks.updateNameOnRename(current, sanitizedName);
     send({ type: "ack", ...tail });
 }
 
@@ -413,7 +418,10 @@ export function handleGroupCreate(
             message: `group_limit_reached (max ${MAX_GROUPS})`,
             ...(msg.req_id ? { req_id: msg.req_id } : {}),
         });
-    const data = ctx.groups.create(sanitized, caller, msg.members);
+    const sanitizedMembers = msg.members
+        .map((m) => sanitizeSessionName(m))
+        .filter((m): m is string => m !== null);
+    const data = ctx.groups.create(sanitized, caller, sanitizedMembers);
     send({
         type: "group_created",
         group: sanitized,

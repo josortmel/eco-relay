@@ -83,6 +83,32 @@ export function createPendingAsks(injected?: Map<string, PendingAsk>) {
         return { peerGone };
     }
 
+    function cleanupByCallerSuffix(suffix: string): void {
+        for (const [askId, pending] of Array.from(map.entries())) {
+            if (pending.caller.endsWith(suffix)) {
+                clearTimeout(pending.timer);
+                map.delete(askId);
+            }
+        }
+    }
+
+    function cleanupByTargetSuffix(suffix: string): DisconnectCleanup {
+        const peerGone: { askId: string; caller: string }[] = [];
+        for (const [askId, pending] of Array.from(map.entries())) {
+            if (pending.target.endsWith(suffix)) {
+                clearTimeout(pending.timer);
+                map.delete(askId);
+                log.warn("pending_ask_peer_gone", {
+                    ask_id: askId,
+                    caller: pending.caller,
+                    target: pending.target,
+                });
+                peerGone.push({ askId, caller: pending.caller });
+            }
+        }
+        return { peerGone };
+    }
+
     function clearAll(): void {
         for (const p of map.values()) clearTimeout(p.timer);
         map.clear();
@@ -94,6 +120,8 @@ export function createPendingAsks(injected?: Map<string, PendingAsk>) {
         peek,
         updateNameOnRename,
         cleanupForDisconnect,
+        cleanupByTargetSuffix,
+        cleanupByCallerSuffix,
         clearAll,
     };
 }

@@ -10,24 +10,28 @@ export type ChannelNotification = {
 export function buildAskNotification(
     msg: Extract<ServerMsg, { type: "incoming_ask" }>,
 ): ChannelNotification {
+    const originHub = msg.from.includes("@") ? msg.from.split("@")[1] : undefined;
     const meta: Record<string, unknown> = {
         from: msg.from,
         ask_id: msg.ask_id,
     };
     if (msg.broadcast_id) meta.broadcast_id = msg.broadcast_id;
     if (msg.thread_id) meta.thread_id = msg.thread_id;
+    if (originHub) meta.origin_hub = originHub;
     return { method: METHOD, params: { content: msg.question, meta } };
 }
 
 export function buildReplyNotification(
     msg: Extract<ServerMsg, { type: "incoming_reply" }>,
 ): ChannelNotification {
+    const originHub = msg.from.includes("@") ? msg.from.split("@")[1] : undefined;
     const meta: Record<string, unknown> = {
         from: msg.from,
         ask_id: msg.ask_id,
     };
     if (msg.broadcast_id) meta.broadcast_id = msg.broadcast_id;
     if (msg.thread_id) meta.thread_id = msg.thread_id;
+    if (originHub) meta.origin_hub = originHub;
     return { method: METHOD, params: { content: msg.text, meta } };
 }
 

@@ -307,6 +307,45 @@ export const IncomingGroupMsgMsg = z.object({
     ts: z.string(),
 });
 
+// --- Bridge (hub-to-hub) messages ---
+
+export const BridgeHelloMsg = z.object({
+    type: z.literal("bridge_hello"),
+    hub_id: z.string().min(1).max(64),
+    secret: z.string(),
+    protocol_version: z.string(),
+    peers: z.array(PeerRecordSchema).max(500),
+});
+
+export const BridgeWelcomeMsg = z.object({
+    type: z.literal("bridge_welcome"),
+    hub_id: z.string().min(1).max(64),
+    peers: z.array(PeerRecordSchema).max(500),
+});
+
+export const BridgePeerUpdateMsg = z.object({
+    type: z.literal("bridge_peer_update"),
+    action: z.enum(["join", "leave"]),
+    peer: PeerRecordSchema.optional(),
+    name: z.string().optional(),
+});
+
+export const BridgeForwardMsg = z.object({
+    type: z.literal("bridge_forward"),
+    target_peer: z.string(),
+    origin_hub: z.string(),
+    wrapped: z.record(z.unknown()),
+});
+
+export const BridgeMsgSchema = z.discriminatedUnion("type", [
+    BridgeHelloMsg,
+    BridgeWelcomeMsg,
+    BridgePeerUpdateMsg,
+    BridgeForwardMsg,
+]);
+
+export type BridgeMsg = z.infer<typeof BridgeMsgSchema>;
+
 export const ServerMsgSchema = z.discriminatedUnion("type", [
     AckMsg,
     ErrMsg,

@@ -536,12 +536,19 @@ export function handleGroupRemove(
             code: "not_member",
             ...(msg.req_id ? { req_id: msg.req_id } : {}),
         });
+    const data = ctx.groups.load(sanitized);
+    if (!data)
+        return send({
+            type: "err",
+            code: "group_not_found",
+            ...(msg.req_id ? { req_id: msg.req_id } : {}),
+        });
     ctx.sendTo(peerSanitized, {
         type: "incoming_group_msg",
         group: sanitized,
         from: caller,
         text: `${caller} removed ${peerSanitized} from ${sanitized}: ${msg.reason}`,
-        msg_id: String(Date.now()),
+        msg_id: String(data.next_id),
         ts: new Date().toISOString(),
     });
     ctx.groups.removeMember(sanitized, peerSanitized, msg.reason, caller);

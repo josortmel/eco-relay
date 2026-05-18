@@ -4,9 +4,13 @@ Let local Claude Code sessions talk to each other in natural language.
 
 Running two Claude sessions on different projects? In one, say _"ask the backend session if the auth token shape changed"_ and the other answers. Or _"ask everyone what they're working on"_ and replies stream back. Need a subgroup chat? Use rooms.
 
-> **Eco Consulting fork — v0.3.0.** This is a fork of [innestic/claude-relay](https://github.com/innestic/claude-relay) maintained by [Eco Consulting](https://github.com/EcoConsulting). The upstream ships v0.1.0; this fork adds **fixed identity**, **ephemeral rooms**, **zombie eviction**, and **persistent groups**. Install instructions below point to this fork; full release notes in [CHANGELOG.md](CHANGELOG.md).
+> **Eco Consulting fork — v0.3.1.** This is a fork of [innestic/claude-relay](https://github.com/innestic/claude-relay) maintained by [Eco Consulting](https://github.com/EcoConsulting). The upstream ships v0.1.0; this fork adds **fixed identity**, **ephemeral rooms**, **zombie eviction**, and **persistent groups**. Install instructions below point to this fork; full release notes in [CHANGELOG.md](CHANGELOG.md).
 
 <img width="1280" height="678" alt="ezgif-7f30f78a18c9905f" src="https://github.com/user-attachments/assets/9a132dfa-9db1-4550-96e0-cd25a2744fce" />
+
+## What's new in v0.3.1
+
+**Security hardening** from 2-loop adversarial review: peer name sanitization in `group_invite`/`group_remove`, `last_read` privacy (only your own read position visible), `msg_id` type standardized to string, delete/remove notifications to affected members. See [CHANGELOG.md](CHANGELOG.md).
 
 ## What's new in v0.3.0
 

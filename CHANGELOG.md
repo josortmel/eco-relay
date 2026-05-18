@@ -4,6 +4,28 @@ All notable changes to this fork are documented here. Format based on [Keep a Ch
 
 This is an internal fork of [innestic/claude-relay](https://github.com/innestic/claude-relay) maintained by Eco Consulting. The public marketplace ships v0.1.0; this branch carries the extensions described below and is not currently distributed via the marketplace.
 
+## [0.3.1] — 2026-05-18
+
+Security hardening + UX from 2-loop adversarial review (adv-seg, adv-code, verificador).
+
+### Security
+
+- **last_read privacy**: `group_info` only exposes caller's own `last_read`; other members' read positions are omitted.
+- **Peer name sanitization in `group_invite`**: `sanitizeSessionName(msg.peer)` now runs before `isMember` check — prevents whitespace-padded names from bypassing the already-member guard and resetting a member's `last_read`.
+- **Peer name sanitization in `group_remove`**: same pattern applied; `isMember` guard added to prevent notifications to non-members and history contamination.
+- **handleRegister async safety**: `.catch()` wrapper prevents unhandled Promise rejection crash.
+
+### Fixed
+
+- **msg_id type standardized**: `IncomingGroupMsgMsg.msg_id` changed from `z.number()` to `z.string()` across protocol, hub handlers, and channel notifications. Eliminates client-side `String()` conversion workaround.
+- **Remove notification msg_id**: uses sequential `data.next_id` instead of `Date.now()` — consistent with all other handlers, no duplicate IDs under concurrent removes.
+- **`GroupInfoResultMsg.members.last_read`**: now `z.number().optional()` in schema (was required).
+
+### Added
+
+- **Delete notification**: `group_delete` now notifies all non-admin members via `incoming_group_msg` before deleting.
+- **Remove notification**: `group_remove` now notifies the removed peer before removal.
+
 ## [0.3.0] — 2026-05-16
 
 Persistent groups: WhatsApp-style groups with offline delivery, admin governance, and disk-backed message storage.

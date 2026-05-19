@@ -166,6 +166,8 @@ pgrep -f hub-daemon.ts
 pkill -f hub-daemon.ts && rm -f "$DATA/hub.sock"   # force reset
 ```
 
+Per-session MCP stderr lives under `~/Library/Caches/claude-cli-nodejs/<project-slug>/mcp-logs-*/`. Start there when a channel fails to register.
+
 ## Development
 
 Requires [Bun](https://bun.sh) and Claude Code 2.1.80+.

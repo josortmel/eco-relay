@@ -17,6 +17,11 @@ Rebranded to **Eco Relay**. Independent project under [josortmel/eco-relay](http
 - Fallback data directory: `~/.claude-relay/` → `~/.eco-relay/`.
 - MCP server identity: `relay-channel` → `eco-relay`.
 
+### Migration
+
+- **Plugin users:** after upgrading from `relay@claude-relay` to `relay@eco-relay`, copy your data directory to preserve groups and bridge config: `cp -r ~/.claude/plugins/data/relay-claude-relay/ ~/.claude/plugins/data/relay-eco-relay/`
+- **Manual-install users:** rename `~/.claude-relay/` to `~/.eco-relay/` to preserve existing data.
+
 ## [0.4.0] — 2026-05-18
 
 Cross-machine LAN federation: hub-to-hub TCP bridge. Two machines on the same network exchange relay messages transparently. 5 adversarial security loops.

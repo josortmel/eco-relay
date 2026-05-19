@@ -4,6 +4,12 @@ Inter-session communication for AI coding assistants. Let multiple AI sessions o
 
 Two sessions on different projects? In one, say _"ask the backend session if the auth token shape changed"_ and the other answers. Need a subgroup? Use rooms. Need offline delivery? Use persistent groups. Need cross-machine? The TCP bridge has you covered.
 
+## Demo
+
+https://github.com/josortmel/eco-relay/releases/download/v0.5.0/2026-05-19.11-07-27.mp4
+
+Seven AI sessions coordinated in real-time: direct asks, broadcast roll calls, ephemeral rooms, persistent groups with offline delivery, and admin governance — all through natural language.
+
 ## Features
 
 **Core messaging**

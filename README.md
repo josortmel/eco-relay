@@ -1,11 +1,5 @@
 <p align="center">
-  <img src="docs/images/logo.svg" alt="" width="32" height="32"><br>
-  <strong>Eco Relay</strong>
-</p>
-
-<p align="center">
-  Inter-session messaging for AI coding assistants.<br>
-  Hub-and-spoke architecture with persistent groups and LAN federation.
+  <img src="docs/images/banner.png" alt="Eco Relay — Inter-session messaging for AI coding assistants" width="100%">
 </p>
 
 <p align="center">
@@ -15,8 +9,6 @@
   <img src="https://img.shields.io/badge/MCP-19%20tools-0d9488" alt="MCP Tools">
   <img src="https://img.shields.io/badge/platform-Claude%20Code-7c3aed" alt="Claude Code">
 </p>
-
----
 
 Inter-session communication for AI coding assistants. Let multiple AI sessions on the same machine — or across your LAN — talk to each other in natural language.
 

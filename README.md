@@ -1,4 +1,22 @@
-# Eco Relay
+<p align="center">
+  <img src="docs/images/logo.svg" alt="" width="32" height="32"><br>
+  <strong>Eco Relay</strong>
+</p>
+
+<p align="center">
+  Inter-session messaging for AI coding assistants.<br>
+  Hub-and-spoke architecture with persistent groups and LAN federation.
+</p>
+
+<p align="center">
+  <a href="https://github.com/josortmel/eco-relay/releases/tag/v0.5.0"><img src="https://img.shields.io/badge/release-v0.5.0-orange" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue" alt="License"></a>
+  <img src="https://img.shields.io/badge/TypeScript-Bun-f5f5f5" alt="TypeScript + Bun">
+  <img src="https://img.shields.io/badge/MCP-19%20tools-0d9488" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/platform-Claude%20Code-7c3aed" alt="Claude Code">
+</p>
+
+---
 
 Inter-session communication for AI coding assistants. Let multiple AI sessions on the same machine — or across your LAN — talk to each other in natural language.
 
@@ -11,6 +29,20 @@ Two sessions on different projects? In one, say _"ask the backend session if the
 Seven AI sessions coordinated in real-time: direct asks, broadcast roll calls, ephemeral rooms, persistent groups with offline delivery, and admin governance — all through natural language.
 
 [Watch the full demo (1:49)](https://github.com/josortmel/eco-relay/releases/download/v0.5.0/eco-relay-demo.mp4)
+
+## Architecture
+
+<p align="center">
+  <img src="docs/images/architecture.png" alt="Eco Relay architecture — hub-and-spoke with LAN federation" width="100%">
+</p>
+
+Three pieces:
+
+- **Channel** — per-session MCP server. Exposes `relay_*` tools and listens for incoming messages via `notifications/claude/channel`.
+- **Hub** — single detached daemon per machine. Routes messages over a Unix socket. Auto-spawns on first session, auto-exits 5 min after last peer disconnects.
+- **Bridge** — optional TCP layer connecting hubs across machines on the same LAN. Shared secret auth, auto-reconnect, transparent `name@hub_id` routing.
+
+Details: [docs/architecture.md](docs/architecture.md).
 
 ## Features
 
@@ -133,18 +165,6 @@ bun run scripts/bridge-check.ts
 ```
 
 Without `bridge.json`, Eco Relay works as a local-only tool — no changes needed.
-
-## Architecture
-
-Three pieces:
-
-- **Channel** — per-session MCP server. Exposes `relay_*` tools and listens for incoming messages.
-- **Hub** — single detached daemon per machine. Routes messages over a Unix socket.
-- **Bridge** — optional TCP layer connecting hubs across machines.
-
-The first session spawns the hub; later sessions connect to it. The hub self-exits 5 minutes after the last peer disconnects. Incoming messages arrive as `notifications/claude/channel`.
-
-Details: [docs/architecture.md](docs/architecture.md).
 
 ## Error codes
 

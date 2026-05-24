@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MAX_TEXT_LEN, PROTOCOL_VERSION, type ServerMsg } from "../protocol";
 import type { HubConnection } from "./hub-connection";
 import { createPendingBroadcasts } from "./pending-broadcasts";
+import { messageSenders } from "./routing";
 import { rawConnect, startCh, tmpSocket, waitForNotif } from "./test-helpers";
 import {
     relayAsk,
@@ -659,5 +660,64 @@ describe("channel tools", () => {
         const ctx = makeCtx(hub);
         await relaySend(ctx, { to: "bob", text: "normal" });
         expect((captured as Record<string, unknown>).urgent).toBeUndefined();
+    });
+
+    // [RR1] relayReply with known msg_id converts to relay_send with reply_to
+    test("[RR1] relayReply with known msg_id converts to relay_send with reply_to", async () => {
+        messageSenders.clear();
+        const { hub } = makeFakeHub();
+        let captured: unknown;
+        hub.sendRequest = async (msg: unknown) => {
+            captured = msg;
+            return { type: "send_ack", msg_id: "m-rr1", status: "delivered" } as ServerMsg;
+        };
+        messageSenders.set("msg-known-1", "alice");
+        const ctx = makeCtx(hub);
+
+        const result = await relayReply(ctx, { ask_id: "msg-known-1", text: "hi back" });
+        messageSenders.delete("msg-known-1");
+
+        expect(result.isError).toBeUndefined();
+        const msg = captured as Record<string, unknown>;
+        expect(msg.type).toBe("send");
+        expect(msg.to).toBe("alice");
+        expect(msg.reply_to).toBe("msg-known-1");
+        expect(msg.text).toBe("hi back");
+    });
+
+    // [RR2] relayReply with unknown id sends type:"reply" as before
+    test("[RR2] relayReply with unknown id sends type:reply as before", async () => {
+        messageSenders.clear();
+        const { hub, sends } = makeFakeHub();
+        const ctx = makeCtx(hub);
+
+        const result = await relayReply(ctx, { ask_id: "real-ask-id-99", text: "pong" });
+
+        expect(result.isError).toBeUndefined();
+        expect(sends.length).toBe(1);
+        const payload = sends[0]!.payload as Record<string, unknown>;
+        expect(payload.type).toBe("reply");
+        expect(payload.ask_id).toBe("real-ask-id-99");
+        expect(payload.text).toBe("pong");
+    });
+
+    // [RR3] relayReply with msg_id returns ok with msg_id and status from send_ack
+    test("[RR3] relayReply with msg_id returns ok with msg_id and status from send_ack", async () => {
+        messageSenders.clear();
+        const { hub } = makeFakeHub();
+        hub.sendRequest = async () => {
+            return { type: "send_ack", msg_id: "m-rr3", status: "queued" } as ServerMsg;
+        };
+        messageSenders.set("msg-known-2", "bob");
+        const ctx = makeCtx(hub);
+
+        const result = await relayReply(ctx, { ask_id: "msg-known-2", text: "response" });
+        messageSenders.delete("msg-known-2");
+
+        expect(result.isError).toBeUndefined();
+        const payload = JSON.parse(result.content[0]!.text) as Record<string, unknown>;
+        expect(payload.ok).toBe(true);
+        expect(payload.msg_id).toBe("m-rr3");
+        expect(payload.status).toBe("queued");
     });
 });

@@ -1,6 +1,7 @@
 import { MAX_TEXT_LEN, type ErrCode } from "../protocol";
 import type { HubConnection } from "./hub-connection";
 import type { BroadcastAckResult, PendingBroadcasts } from "./pending-broadcasts";
+import { messageSenders } from "./routing";
 
 export type ToolResult = {
     isError?: boolean;
@@ -93,6 +94,12 @@ export async function relayReply(
     const text = args.text;
     if (typeof askId !== "string" || typeof text !== "string") return errResult("bad_args");
     if (text.length > MAX_TEXT_LEN) return errResult("bad_args");
+
+    const sender = messageSenders.get(askId);
+    if (sender) {
+        return relaySend(ctx, { to: sender, text, reply_to: askId });
+    }
+
     ctx.getHub().send({ type: "reply", ask_id: askId, text });
     return okResult({ ok: true });
 }

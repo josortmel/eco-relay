@@ -14,6 +14,17 @@ import type { PendingBroadcasts } from "./pending-broadcasts";
 
 const log = makeLogger("channel");
 
+export const messageSenders = new Map<string, string>();
+const MAX_TRACKED_MESSAGES = 200;
+
+export function trackMessageSender(msgId: string, from: string): void {
+    if (messageSenders.size >= MAX_TRACKED_MESSAGES) {
+        const firstKey = messageSenders.keys().next().value;
+        if (firstKey) messageSenders.delete(firstKey);
+    }
+    messageSenders.set(msgId, from);
+}
+
 export type NotificationSink = {
     onNotification?: (n: { method: string; params: Record<string, unknown> }) => void;
     transport?: unknown;
@@ -69,6 +80,7 @@ export function wireHubRouting(
             return;
         }
         if (m.type === "incoming_message") {
+            trackMessageSender(m.msg_id, m.from);
             emitNotification(buildMessageNotification(m));
             return;
         }
@@ -83,5 +95,6 @@ export function wireHubRouting(
 
     hub.onDisconnect(() => {
         pendingBroadcasts.failAll("hub_unreachable");
+        messageSenders.clear();
     });
 }

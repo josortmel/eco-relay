@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ServerMsg } from "../protocol";
 import type { HubConnection } from "./hub-connection";
 import { createPendingBroadcasts } from "./pending-broadcasts";
-import { wireHubRouting } from "./routing";
+import { messageSenders, trackMessageSender, wireHubRouting } from "./routing";
 
 type Captured = { sent: unknown[]; listener: ((m: ServerMsg) => void) | null };
 
@@ -50,6 +50,67 @@ describe("wireHubRouting — incoming_message routing", () => {
         expect(n.params.meta.from).toBe("alice");
         expect(n.params.meta.msg_id).toBe("m-1-abc");
         expect(captured.sent).toEqual([]);
+    });
+});
+
+describe("messageSenders tracking", () => {
+    test("incoming_message populates messageSenders map", () => {
+        messageSenders.clear();
+        const captured: Captured = { sent: [], listener: null };
+        const hub = createMockHub(captured);
+        wireHubRouting(hub, createPendingBroadcasts(), () => {});
+
+        if (captured.listener === null) throw new Error("listener not registered");
+        captured.listener({
+            type: "incoming_message",
+            msg_id: "m-track-1",
+            from: "bob",
+            text: "hi",
+            reply_to: null,
+            ts: "2026-01-01T00:00:00.000Z",
+        });
+
+        expect(messageSenders.get("m-track-1")).toBe("bob");
+        messageSenders.clear();
+    });
+
+    test("trackMessageSender evicts oldest when cap reached", () => {
+        messageSenders.clear();
+        for (let i = 0; i < 200; i++) {
+            trackMessageSender(`evict-msg-${i}`, `sender-${i}`);
+        }
+        expect(messageSenders.size).toBe(200);
+        expect(messageSenders.has("evict-msg-0")).toBe(true);
+
+        trackMessageSender("evict-msg-200", "sender-200");
+        expect(messageSenders.size).toBe(200);
+        expect(messageSenders.has("evict-msg-0")).toBe(false);
+        expect(messageSenders.has("evict-msg-200")).toBe(true);
+        messageSenders.clear();
+    });
+
+    test("messageSenders cleared on disconnect", () => {
+        messageSenders.clear();
+        messageSenders.set("pre-existing", "alice");
+
+        let disconnectCb: (() => void) | undefined;
+        const hub: HubConnection = {
+            onMessage: (cb: (m: ServerMsg) => void) => {
+                void cb;
+                return () => {};
+            },
+            send: () => {},
+            onDisconnect: (cb: () => void) => {
+                disconnectCb = cb;
+                return () => {};
+            },
+        } as unknown as HubConnection;
+
+        wireHubRouting(hub, createPendingBroadcasts(), () => {});
+        expect(messageSenders.has("pre-existing")).toBe(true);
+
+        disconnectCb!();
+        expect(messageSenders.size).toBe(0);
     });
 });
 

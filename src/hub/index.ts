@@ -5,7 +5,6 @@ import { dataDir, groupsDir } from "../data-dir";
 import { readLines, writeLine } from "../framing";
 import { makeLogger } from "../logger";
 import { ClientMsgSchema, ServerMsgSchema, type ServerMsg } from "../protocol";
-import { addWsEndpoint, VirtualSocket, type SocketLike, type WsHandler } from "./ws-endpoint";
 import { createBridge, type Bridge } from "./bridge";
 import { loadBridgeConfig } from "./bridge-config";
 import { createGroupStore } from "./groups";
@@ -34,6 +33,7 @@ import {
 import { createMailboxStore } from "./mailbox";
 import { createPeerRegistry } from "./registry";
 import { listenWithRecovery } from "./socket-recovery";
+import { addWsEndpoint, VirtualSocket, type WsHandler } from "./ws-endpoint";
 
 const log = makeLogger("hub");
 
@@ -257,19 +257,26 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
 
     let wsEndpoint: { close: () => Promise<void> } | null = null;
     if (opts.wsPort !== undefined) {
-        wsEndpoint = addWsEndpoint(registry, handleLine as unknown as WsHandler, {
-            port: opts.wsPort,
-            onDisconnect: (name: string) => {
-                if (bridge && !name.includes("@")) {
-                    bridge.broadcastPeerUpdate({
-                        type: "bridge_peer_update",
-                        action: "leave",
-                        name,
-                    });
-                }
-                scheduleIdleTimerIfEmpty();
-            },
-        });
+        try {
+            wsEndpoint = addWsEndpoint(registry, handleLine as unknown as WsHandler, {
+                port: opts.wsPort,
+                onDisconnect: (name: string) => {
+                    if (bridge && !name.includes("@")) {
+                        bridge.broadcastPeerUpdate({
+                            type: "bridge_peer_update",
+                            action: "leave",
+                            name,
+                        });
+                    }
+                    scheduleIdleTimerIfEmpty();
+                },
+            });
+        } catch (e) {
+            log.error("ws_endpoint_failed", {
+                port: opts.wsPort,
+                err: e instanceof Error ? e.message : String(e),
+            });
+        }
     }
 
     if (bridge) {

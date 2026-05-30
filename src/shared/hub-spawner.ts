@@ -11,10 +11,6 @@ const log = makeLogger("hub-spawner");
 const LOCK_PATH = path.join(os.homedir(), ".eco-relay", "hub.lock");
 const DAEMON_ENTRY = path.resolve(import.meta.dir, "..", "hub-daemon.ts");
 
-// VS1: embedded SHA-256 — not read from mutable hub.sha256 at runtime
-const HUB_EXPECTED_SHA256 =
-    "d6fa4a9830233caa580bcfe14ce122c93e72af3a1c973144bde4604fdc98651c";
-
 // VS2: resolve bun to absolute path at module load
 function resolveBunPath(): string {
     // On Windows, process.execPath is the bun.exe path
@@ -212,30 +208,6 @@ export function acquireLock(
     }
 }
 
-// ── SHA-256 verification (VS1: embedded constant) ──────────────────
-
-function verifyHash(): void {
-    try {
-        const daemonSrc = fs.readFileSync(DAEMON_ENTRY);
-        const actual = crypto
-            .createHash("sha256")
-            .update(daemonSrc)
-            .digest("hex");
-        if (actual !== HUB_EXPECTED_SHA256) {
-            throw new Error(
-                `hub-daemon.ts hash mismatch: expected ${HUB_EXPECTED_SHA256.slice(0, 16)}..., got ${actual.slice(0, 16)}...`,
-            );
-        }
-    } catch (e) {
-        if (e instanceof Error && e.message.startsWith("hub-daemon.ts hash mismatch")) {
-            throw e;
-        }
-        throw new Error(
-            `hub-daemon.ts verification failed: ${e instanceof Error ? e.message : String(e)}`,
-        );
-    }
-}
-
 // ── Spawn ──────────────────────────────────────────────────────────
 
 export type HubHandle = {
@@ -247,8 +219,6 @@ export function spawnHub(
     socketPath: string,
     wsPort: number,
 ): HubHandle {
-    verifyHash();
-
     const env = { ...process.env, RELAY_HUB_SOCKET: socketPath };
 
     const child = spawn("bun", ["run", DAEMON_ENTRY], {

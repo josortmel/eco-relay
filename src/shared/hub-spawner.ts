@@ -318,10 +318,10 @@ export async function bootstrapHub(
 export async function spawnDetachedDaemon(
     socketPath: string,
 ): Promise<{ close: () => Promise<void> }> {
-    const defaultWsPort = parseInt(
-        process.env.ECORELAY_WS_PORT ?? "9376",
-        10,
-    );
+    const rawPort = Number(process.env.ECORELAY_WS_PORT || "9376");
+    const defaultWsPort = Number.isInteger(rawPort) && rawPort >= 1 && rawPort <= 65535
+        ? rawPort
+        : 9376;
     const handle = spawnHub(socketPath, defaultWsPort);
     return { close: () => handle.close() };
 }

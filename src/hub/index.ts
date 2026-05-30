@@ -5,6 +5,7 @@ import { dataDir, groupsDir } from "../data-dir";
 import { readLines, writeLine } from "../framing";
 import { makeLogger } from "../logger";
 import { ClientMsgSchema, ServerMsgSchema, type ServerMsg } from "../protocol";
+import { addWsEndpoint, VirtualSocket, type SocketLike, type WsHandler } from "./ws-endpoint";
 import { createBridge, type Bridge } from "./bridge";
 import { loadBridgeConfig } from "./bridge-config";
 import { createGroupStore } from "./groups";
@@ -51,6 +52,8 @@ export type StartHubOptions = {
      * Timeout in ms for each probe during the sweep. Default: 1000.
      */
     sweepProbeTimeoutMs?: number;
+    /** WebSocket port for non-Unix-socket peers (e.g. OpenCode plugin). */
+    wsPort?: number;
 };
 
 export type HubHandle = { close: () => Promise<void> };
@@ -99,7 +102,11 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
         const s = registry.getSocket(name);
         if (s) {
             try {
-                writeLine(s, msg);
+                if (s instanceof VirtualSocket) {
+                    s.write(JSON.stringify(msg) + "\n");
+                } else {
+                    writeLine(s, msg);
+                }
                 return true;
             } catch {
                 return false;
@@ -197,6 +204,8 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
                     return handleSend(ctx, socket, msg, send);
                 case "inbox":
                     return handleInbox(ctx, socket, msg, send);
+                case "ping":
+                    return send({ type: "pong", req_id: msg.req_id });
                 case "pong":
                     return ctx.registry.handlePong(msg.req_id);
             }
@@ -245,6 +254,23 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
     fs.chmodSync(socketPath, 0o600);
     log.info("listen_start", { socketPath });
     scheduleIdleTimerIfEmpty();
+
+    let wsEndpoint: { close: () => Promise<void> } | null = null;
+    if (opts.wsPort !== undefined) {
+        wsEndpoint = addWsEndpoint(registry, handleLine as unknown as WsHandler, {
+            port: opts.wsPort,
+            onDisconnect: (name: string) => {
+                if (bridge && !name.includes("@")) {
+                    bridge.broadcastPeerUpdate({
+                        type: "bridge_peer_update",
+                        action: "leave",
+                        name,
+                    });
+                }
+                scheduleIdleTimerIfEmpty();
+            },
+        });
+    }
 
     if (bridge) {
         bridge.setForwardHandler((fwd) => {
@@ -323,6 +349,7 @@ export async function startHub(opts: StartHubOptions): Promise<HubHandle> {
             }
             cancelIdleTimer();
             await bridge?.close();
+            await wsEndpoint?.close();
             await new Promise<void>((resolve) => {
                 server.close(() => {
                     try {

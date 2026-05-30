@@ -4,6 +4,38 @@ All notable changes to Eco Relay are documented here. Format based on [Keep a Ch
 
 Eco Relay is based on [claude-relay](https://github.com/innestic/claude-relay) by Innestic (MIT). Versions prior to 0.5.0 were developed as an internal fork under [EcoConsulting/claude-relay](https://github.com/EcoConsulting/claude-relay).
 
+## [0.7.5] — 2026-05-29
+
+Multi-platform support: OpenCode plugin + Hub WebSocket endpoint. Cross-CLI messaging between Claude Code and OpenCode.
+
+### Added
+
+- **Hub WebSocket endpoint** (`src/hub/ws-endpoint.ts`): Bun.serve() WebSocket on 127.0.0.1:9376. VirtualSocket wraps WS as net.Socket-compatible EventEmitter. timingSafeEqual auth with token from ~/.eco-relay/hub-ws-token. Coexists with Unix socket on same registry.
+- **OpenCode plugin** (`src/opencode-plugin/ecorelay.ts`): registers all 19 relay MCP tools in OpenCode. Connects to Hub via WebSocket. Session lifecycle events (created/deleted/status). Push delivery via OC Server API (`POST /session/:id/message`) with retry + backoff. Peer ID persistence across restarts (`~/.cache/ecorelay/peer-ids.json`). Agent instructions injection via `experimental.chat.system.transform`.
+- **Install script** (`scripts/install-opencode-plugin.sh`): one-command plugin installation.
+- **Integration tests** (`src/integration/cross-transport.test.ts`): cross-transport messaging verified (Unix ↔ WebSocket, 7 tests).
+
+### Changed
+
+- `startHub` options: new `wsPort` parameter activates WebSocket endpoint.
+- `sendTo` dispatch: detects VirtualSocket → uses `write()` instead of `writeLine()`.
+- `SocketLike` interface extracted for registry socket contract documentation.
+
+### Security
+
+- **WS auth**: `crypto.timingSafeEqual` for token comparison (constant-time). 5-second auth timeout, close code 4003 on failure.
+- **Payload limits**: `maxPayloadLength: 1 MiB` on WS connections. Auth payload capped at 1024 bytes. Message size guard against multi-line accumulation bypass.
+- **Empty token regeneration**: token files shorter than 16 chars auto-regenerate.
+- **Idempotent instructions**: `experimental.chat.system.transform` guard prevents duplicate INSTRUCTIONS injection on every LLM request.
+
+### Fixed
+
+- `name_taken` on WS register: retry up to 10 times with numeric suffix before giving up.
+- `scheduleReconnect` zombie: lazyConnect failures now propagate to reconnect loop.
+- `messageSenders` unbounded growth: capped at 200 entries with oldest-first eviction.
+- `loadPeerId` type safety: non-string cache values treated as cache miss.
+- `savePeerId` disk error resilience: wrapped in try/catch, cache is auxiliary.
+
 ## [0.7.0] — 2026-05-24
 
 Cross-network internet federation + unified messaging + security hardening. Two major versions in one release.

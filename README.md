@@ -3,11 +3,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/josortmel/eco-relay/releases/tag/v0.7.2"><img src="https://img.shields.io/badge/release-v0.7.2-orange" alt="Release"></a>
+  <a href="https://github.com/josortmel/eco-relay/releases/tag/v0.7.5"><img src="https://img.shields.io/badge/release-v0.7.5-orange" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue" alt="License"></a>
   <img src="https://img.shields.io/badge/TypeScript-Bun-f5f5f5" alt="TypeScript + Bun">
   <img src="https://img.shields.io/badge/MCP-19%20tools-0d9488" alt="MCP Tools">
   <img src="https://img.shields.io/badge/platform-Claude%20Code-7c3aed" alt="Claude Code">
+  <img src="https://img.shields.io/badge/platform-OpenCode-0284c7" alt="OpenCode">
 </p>
 
 Inter-session messaging for AI coding assistants. Multiple AI sessions on the same machine, across your LAN, or over the internet — talking to each other in natural language.
@@ -36,6 +37,21 @@ Four pieces, three transport layers:
 - **Relay Server (Internet)** — lightweight WebSocket router (~200 lines) that connects hubs across different networks. All connections outbound — works behind NAT, firewalls, and proxies. Stateless message forwarding, no persistence.
 
 Details: [docs/architecture.md](docs/architecture.md).
+
+### Multi-Platform (v0.7.5)
+
+Eco Relay now supports cross-CLI messaging between Claude Code and OpenCode:
+
+- **Hub WebSocket endpoint** — runs alongside the Unix socket on `ws://127.0.0.1:9376`. OpenCode plugins connect via WebSocket using the same wire protocol. VirtualSocket adapts WS to the registry's socket contract.
+- **OpenCode plugin** (`src/opencode-plugin/ecorelay.ts`) — registers all 19 relay MCP tools in OpenCode. Push delivery via OC Server API (`POST /session/:id/message`). Session lifecycle events, WebSocket reconnect with exponential backoff, peer ID persistence across restarts.
+- **Cross-CLI messaging** — a CC peer `gamma` can `relay_send` to an OC peer `alfa` and the message appears in the OC TUI. vice-versa. Broadcasts reach all sessions regardless of CLI.
+
+**Installation:**
+```bash
+bash scripts/install-opencode-plugin.sh
+# Then add to opencode.jsonc: "server": { "port": 4096, "hostname": "127.0.0.1" }
+# Restart OpenCode TUI
+```
 
 ## Features
 
@@ -81,10 +97,11 @@ Details: [docs/architecture.md](docs/architecture.md).
 
 ### Platform support
 
-| Platform               | Status         |
-| ---------------------- | -------------- |
-| Claude Code CLI        | Full support   |
-| Other AI CLI platforms | Planned (v1.0) |
+| Platform               | Status               |
+| ---------------------- | -------------------- |
+| Claude Code CLI        | Full support         |
+| OpenCode               | Full support (v0.7.5) |
+| Other AI CLI platforms | Planned (v1.0)       |
 
 Eco Relay ships as a Claude Code plugin. The hub and bridge layers are already platform-agnostic — extending to other CLI-based AI assistants (Codex, Antigravity, Cursor, and other agentic harnesses) is the design goal for v1.0.
 
@@ -313,7 +330,8 @@ Add both `peers` (LAN) and `relay` (internet) to the same bridge.json. Local mac
 | v0.4    | Released | LAN federation (TCP bridge)                                                                   |
 | v0.5    | Released | Claude Code plugin packaging                                                                  |
 | v0.6    | Released | Persistent direct messaging (mailbox)                                                         |
-| v0.7    | Current  | Internet federation (WebSocket relay)                                                         |
+| v0.7    | Released | Internet federation (WebSocket relay)                                                         |
+| v0.7.5  | Current  | Multi-platform (OpenCode plugin + Hub WS endpoint)                                            |
 | v0.8    | Next     | End-to-end encryption                                                                         |
 | v1.0    | Planned  | Platform-agnostic (adapter layer for Codex, Antigravity, Cursor, and other agentic harnesses) |
 

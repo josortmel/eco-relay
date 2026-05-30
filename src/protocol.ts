@@ -41,6 +41,11 @@ export const PongMsg = z.object({
     req_id: z.string(),
 });
 
+export const PingMsg = z.object({
+    type: z.literal("ping"),
+    req_id: z.string(),
+});
+
 export const JoinRoomMsg = z.object({
     type: z.literal("join_room"),
     room: z.string(),
@@ -140,6 +145,7 @@ export const ClientMsgSchema = z.discriminatedUnion("type", [
     ReplyMsg,
     BroadcastMsg,
     PongMsg,
+    PingMsg,
     JoinRoomMsg,
     LeaveRoomMsg,
     RoomMsgMsg,
@@ -226,11 +232,6 @@ export const BroadcastAckMsg = z.object({
     type: z.literal("broadcast_ack"),
     broadcast_id: z.string(),
     peer_count: z.number(),
-});
-
-export const PingMsg = z.object({
-    type: z.literal("ping"),
-    req_id: z.string(),
 });
 
 export const RoomAckMsg = z.object({
@@ -394,6 +395,7 @@ export const ServerMsgSchema = z.discriminatedUnion("type", [
     IncomingReplyMsg,
     BroadcastAckMsg,
     PingMsg,
+    PongMsg,
     RoomAckMsg,
     RoomSendAckMsg,
     IncomingRoomMsgMsg,

@@ -4,7 +4,7 @@ import { server } from "./ecorelay";
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function mockSessionList(
-    sessions: Array<{ id: string; title?: string | null; parentId?: string | null }> = [],
+    sessions: Array<{ id: string; title?: string | null; parentID?: string | null }> = [],
 ) {
     return mock(async () => sessions);
 }
@@ -64,13 +64,14 @@ describe("Server lifecycle", () => {
     test("bootstrap enumerates existing root sessions", async () => {
         const sessions = [
             { id: "s1", title: "Session 1" },
-            { id: "child-1", title: "Child", parentId: "s1" },
+            { id: "child-1", title: "Child", parentID: "s1" },
         ];
         const input = mockPluginInput({
             client: { session: { list: mockSessionList(sessions), prompt: mock(async () => {}) } },
         });
         const hooks = await server(input as any);
-        // Child sessions with parentId are skipped in bootstrap
+        // Child sessions with parentID are skipped in bootstrap
+        // Root session s1 is passed to ensurePeer
         expect(hooks.tool).toBeDefined();
     });
 
@@ -104,83 +105,99 @@ describe("Tool registration", () => {
 });
 
 describe("Event handler", () => {
-    test("session.created with valid session", async () => {
+    test("session.created with valid session via .info API", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
-        // Should not throw — valid root session
-        await hooks.event!({
-            event: {
-                type: "session.created",
-                properties: { session: { id: "s-new", title: "New Session" } },
-            } as any,
-        });
-        expect(true).toBe(true);
+        // SDK v1.15.12: properties.info, not .session
+        await expect(
+            hooks.event!({
+                event: {
+                    type: "session.created",
+                    properties: { info: { id: "s-new", title: "New Session" } },
+                } as any,
+            }),
+        ).resolves.toBeUndefined();
     });
 
     test("session.created with invalid properties does not crash", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
-        // Invalid: no session object
-        await hooks.event!({
-            event: { type: "session.created", properties: {} } as any,
-        });
-        // Invalid: session without id
-        await hooks.event!({
-            event: { type: "session.created", properties: { session: {} } } as any,
-        });
-        // Invalid: null session
-        await hooks.event!({
-            event: { type: "session.created", properties: { session: null } } as any,
-        });
-        expect(true).toBe(true);
+        // Invalid: empty properties (no .info)
+        await expect(
+            hooks.event!({ event: { type: "session.created", properties: {} } } as any),
+        ).resolves.toBeUndefined();
+        // Invalid: .info without id
+        await expect(
+            hooks.event!({ event: { type: "session.created", properties: { info: {} as any } } } as any),
+        ).resolves.toBeUndefined();
+        // Invalid: null .info
+        await expect(
+            hooks.event!({ event: { type: "session.created", properties: { info: null } } } as any),
+        ).resolves.toBeUndefined();
     });
 
-    test("session.created with child session (parentId) is skipped", async () => {
+    test("session.created with child session (parentID) is skipped", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
+        // SDK v1.15.12: parentID (capital D) — child session must NOT create a peer
+        await expect(
+            hooks.event!({
+                event: {
+                    type: "session.created",
+                    properties: { info: { id: "child-1", title: "Child", parentID: "root-1" } },
+                } as any,
+            }),
+        ).resolves.toBeUndefined();
+    });
+
+    test("session.deleted with valid info.id removes peer", async () => {
+        const input = mockPluginInput();
+        const hooks = await server(input as any);
+
+        // Create peer first
         await hooks.event!({
             event: {
                 type: "session.created",
-                properties: { session: { id: "child-1", title: "Child", parentId: "root-1" } },
+                properties: { info: { id: "s-del", title: "To Delete" } },
             } as any,
         });
-        expect(true).toBe(true);
-    });
-
-    test("session.deleted with valid sessionID does not crash", async () => {
-        const input = mockPluginInput();
-        const hooks = await server(input as any);
-
-        await hooks.event!({
-            event: { type: "session.deleted", properties: { sessionID: "nonexistent" } } as any,
-        });
-        expect(true).toBe(true);
+        // Delete via .info.id (SDK v1.15.12 — not .sessionID)
+        await expect(
+            hooks.event!({
+                event: { type: "session.deleted", properties: { info: { id: "s-del" } } } as any,
+            }),
+        ).resolves.toBeUndefined();
     });
 
     test("session.deleted with invalid properties warns but does not crash", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
-        await hooks.event!({
-            event: { type: "session.deleted", properties: {} } as any,
-        });
-        expect(true).toBe(true);
+        // Invalid: no .info
+        await expect(
+            hooks.event!({ event: { type: "session.deleted", properties: {} } } as any),
+        ).resolves.toBeUndefined();
+        // Invalid: .info without id
+        await expect(
+            hooks.event!({ event: { type: "session.deleted", properties: { info: {} as any } } } as any),
+        ).resolves.toBeUndefined();
     });
 
     test("session.status handler does not crash", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
-        await hooks.event!({
-            event: { type: "session.status", properties: { sessionID: "s1", status: "busy" } } as any,
-        });
-        expect(true).toBe(true);
+        await expect(
+            hooks.event!({
+                event: { type: "session.status", properties: { info: { id: "s1" }, status: "busy" } } as any,
+            }),
+        ).resolves.toBeUndefined();
     });
 
-    test("concurrent session.created events", async () => {
+    test("concurrent session.created events with .info API", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
@@ -188,27 +205,29 @@ describe("Event handler", () => {
             await hooks.event!({
                 event: {
                     type: "session.created",
-                    properties: { session: { id: `concurrent-${i}`, title: `S${i}` } },
+                    properties: { info: { id: `concurrent-${i}`, title: `S${i}` } },
                 } as any,
             });
         }
+        // All 20 sessions processed via .info API — no crash
         expect(true).toBe(true);
     });
 
-    test("rapid create+delete+create same id", async () => {
+    test("rapid create+delete+create same id via .info API", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
         const sid = "churn-session";
         await hooks.event!({
-            event: { type: "session.created", properties: { session: { id: sid, title: "Churn" } } } as any,
+            event: { type: "session.created", properties: { info: { id: sid, title: "Churn" } } } as any,
         });
         await hooks.event!({
-            event: { type: "session.deleted", properties: { sessionID: sid } } as any,
+            event: { type: "session.deleted", properties: { info: { id: sid } } } as any,
         });
         await hooks.event!({
-            event: { type: "session.created", properties: { session: { id: sid, title: "Again" } } } as any,
+            event: { type: "session.created", properties: { info: { id: sid, title: "Again" } } } as any,
         });
+        // Full cycle via .info API — no crash
         expect(true).toBe(true);
     });
 });
@@ -251,30 +270,32 @@ describe("Edge cases", () => {
         expect(hooks.tool).toBeDefined();
     });
 
-    test("server handles unicode session titles", async () => {
+    test("server handles unicode session titles via .info API", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
-        await hooks.event!({
-            event: {
-                type: "session.created",
-                properties: { session: { id: "unicode-1", title: "セッション 🎉 中文" } },
-            } as any,
-        });
-        expect(true).toBe(true);
+        await expect(
+            hooks.event!({
+                event: {
+                    type: "session.created",
+                    properties: { info: { id: "unicode-1", title: "セッション 🎉 中文" } },
+                } as any,
+            }),
+        ).resolves.toBeUndefined();
     });
 
-    test("server handles session with null title", async () => {
+    test("server handles session with null title via .info API", async () => {
         const input = mockPluginInput();
         const hooks = await server(input as any);
 
-        await hooks.event!({
-            event: {
-                type: "session.created",
-                properties: { session: { id: "no-title", title: null } },
-            } as any,
-        });
-        expect(true).toBe(true);
+        await expect(
+            hooks.event!({
+                event: {
+                    type: "session.created",
+                    properties: { info: { id: "no-title", title: null } },
+                } as any,
+            }),
+        ).resolves.toBeUndefined();
     });
 });
 

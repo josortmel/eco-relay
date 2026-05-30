@@ -40,18 +40,14 @@ Details: [docs/architecture.md](docs/architecture.md).
 
 ### Multi-Platform (v0.7.6)
 
-Eco Relay supports cross-CLI messaging between Claude Code and OpenCode via a shared Hub daemon:
+Cross-CLI messaging between Claude Code and OpenCode via a shared Hub daemon. All 19 `relay_*` tools available on both platforms. Open a CC session and an OC session — they see each other, send messages, broadcast.
 
-- **Claude Code**: full support. Sessions connect via Unix socket. Hub auto-spawns on first session, auto-exits after idle. All 19 relay tools, push notifications, persistent messaging.
-- **OpenCode**: partial support (v0.7.6). Plugin loads and registers all 19 `relay_*` tools. Hub connection via WebSocket (`ws://127.0.0.1:9376`). Push delivery via OC Server API with auto-discovered URL. **Known limitation**: Hub must be running (started by Claude Code) before OC connects. OC auto-spawn is planned for v0.8.
-- **Cross-CLI messaging**: a CC peer sends `relay_send` to an OC peer — the message appears in the OC TUI. Broadcasts reach all sessions regardless of CLI.
-
-**Installation (one command):**
+**Installation:**
 ```bash
 bash scripts/install.sh
 ```
 
-This installs everything: Hub code to `~/.ecorelay/`, OC plugin to `~/.config/opencode/plugins/`, and syncs the CC cache. No manual config needed. Open Claude Code or OpenCode — done.
+One command. Installs everything. Open Claude Code or OpenCode — done.
 
 ## Features
 
@@ -100,7 +96,7 @@ This installs everything: Hub code to `~/.ecorelay/`, OC plugin to `~/.config/op
 | Platform               | Status               |
 | ---------------------- | -------------------- |
 | Claude Code CLI        | Full support         |
-| OpenCode               | Partial support (v0.7.6) |
+| OpenCode               | Full support (v0.7.6) |
 | Other AI CLI platforms | Planned (v1.0)       |
 
 Eco Relay ships as a Claude Code plugin. The hub and bridge layers are already platform-agnostic — extending to other CLI-based AI assistants (Codex, Antigravity, Cursor, and other agentic harnesses) is the design goal for v1.0.

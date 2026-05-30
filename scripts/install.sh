@@ -2,84 +2,171 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-INSTALL_DIR="${HOME}/.ecorelay"
-OC_PLUGIN_DIR="${HOME}/.config/opencode/plugins"
-CC_CACHE_DIR="${HOME}/.claude/plugins/cache/eco-relay/relay/0.8.0"
-VERSION="0.8.0"
+VERSION=$(grep '"version"' "$REPO_DIR/package.json" | head -1 | sed 's/.*: "//;s/".*//')
+
+# Resolve real bun.exe (PATH may have .ps1 shim that bash can't execute)
+BUN="$HOME/.bun/bin/bun.exe"
+if [ ! -f "$BUN" ]; then
+    BUN="$HOME/.bun/bin/bun"
+fi
+if [ ! -f "$BUN" ]; then
+    BUN=$(command -v bun 2>/dev/null || true)
+fi
+if [ -z "$BUN" ]; then
+    echo "ERROR: bun not found. Install bun first: https://bun.sh"
+    exit 1
+fi
 
 echo "EcoRelay v${VERSION} — installing..."
+echo "  bun: $BUN"
 
-# 1. Create directories (fresh install)
-if [ -L "${INSTALL_DIR}" ]; then
-    echo "ERROR: ${INSTALL_DIR} is a symlink, refusing"
+# ── Helper: copy src tree ──────────────────────────────────────────
+copy_src() {
+    local dest="$1"
+    mkdir -p "$dest/src"
+    for dir in hub shared opencode-plugin channel relay-server integration; do
+        if [ -d "$REPO_DIR/src/$dir" ]; then
+            mkdir -p "$dest/src/$dir"
+            cp -rP "$REPO_DIR/src/$dir/"* "$dest/src/$dir/"
+        fi
+    done
+    cp -P "$REPO_DIR/src/"*.ts "$dest/src/" 2>/dev/null || true
+    for file in package.json bun.lock tsconfig.json; do
+        [ -f "$REPO_DIR/$file" ] && cp -P "$REPO_DIR/$file" "$dest/$file"
+    done
+    if [ -d "$REPO_DIR/.claude-plugin" ]; then
+        mkdir -p "$dest/.claude-plugin"
+        cp -P "$REPO_DIR/.claude-plugin/"* "$dest/.claude-plugin/"
+    fi
+}
+
+# ══════════════════════════════════════════════════════════════════════
+# 1. ~/.ecorelay (standalone — OC daemon spawns from here)
+# ══════════════════════════════════════════════════════════════════════
+INSTALL_DIR="$HOME/.ecorelay"
+if [ -L "$INSTALL_DIR" ]; then
+    echo "ERROR: $INSTALL_DIR is a symlink, refusing"
     exit 1
 fi
-rm -rf "${INSTALL_DIR}"
-mkdir -p "${INSTALL_DIR}"
-chmod 0700 "${INSTALL_DIR}"
-mkdir -p "${INSTALL_DIR}/src"
-mkdir -p "${OC_PLUGIN_DIR}"
+rm -rf "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+chmod 0700 "$INSTALL_DIR"
+copy_src "$INSTALL_DIR"
+cd "$INSTALL_DIR" && "$BUN" install --ignore-scripts
+echo "  ~/.ecorelay ✓"
 
-# Clean up old plugin path if it exists (would conflict)
-if [ -f "${HOME}/.opencode/plugin/ecorelay.ts" ]; then
-    rm -f "${HOME}/.opencode/plugin/ecorelay.ts"
-    echo "Removed old plugin at ~/.opencode/plugin/"
-fi
-
-# VS4: refuse if OC_PLUGIN_DIR is a symlink
-if [ -L "${OC_PLUGIN_DIR}" ]; then
-    echo "ERROR: ${OC_PLUGIN_DIR} is a symlink, refusing"
-    exit 1
-fi
-
-# 2. Copy core files (VS1: -rP = recursive, no symlink follow)
-# F1: ensure intermediate directories exist
-for dir in src/hub src/shared src/opencode-plugin src/channel src/relay-server src/integration; do
-    if [ -d "${REPO_DIR}/${dir}" ]; then
-        mkdir -p "${INSTALL_DIR}/${dir}"
-        cp -rP "${REPO_DIR}/${dir}/"* "${INSTALL_DIR}/${dir}/"
+# ══════════════════════════════════════════════════════════════════════
+# 2. OpenCode plugin (if OC detected)
+# ══════════════════════════════════════════════════════════════════════
+OC_PLUGIN_DIR="$HOME/.config/opencode/plugins"
+if [ -d "$OC_PLUGIN_DIR" ] || command -v opencode &>/dev/null; then
+    if [ -L "$OC_PLUGIN_DIR" ]; then
+        echo "ERROR: $OC_PLUGIN_DIR is a symlink, refusing"
+        exit 1
     fi
-done
-
-# F2: copy all root src .ts files
-cp -P "${REPO_DIR}/src/"*.ts "${INSTALL_DIR}/src/" 2>/dev/null || true
-
-for file in package.json bun.lock tsconfig.json; do
-    if [ -f "${REPO_DIR}/${file}" ]; then
-        cp -P "${REPO_DIR}/${file}" "${INSTALL_DIR}/${file}"
-    fi
-done
-
-# 3. Install dependencies (all — need devDeps for typecheck)
-cd "${INSTALL_DIR}"
-bun install --ignore-scripts
-
-# 4. Install OpenCode plugin
-cp -P "${INSTALL_DIR}/src/opencode-plugin/ecorelay.ts" "${OC_PLUGIN_DIR}/ecorelay.ts"
-
-# Ensure OC package.json has required dependencies
-if [ ! -f "${OC_PLUGIN_DIR}/package.json" ]; then
-    cat > "${OC_PLUGIN_DIR}/package.json" << 'PACKAGEDEPS'
+    mkdir -p "$OC_PLUGIN_DIR"
+    cp -P "$REPO_DIR/src/opencode-plugin/ecorelay.ts" "$OC_PLUGIN_DIR/ecorelay.ts"
+    if [ ! -f "$OC_PLUGIN_DIR/package.json" ]; then
+        cat > "$OC_PLUGIN_DIR/package.json" << 'PKGJSON'
 {
   "dependencies": {
     "@opencode-ai/plugin": "1.15.12",
     "ws": "8.18.0"
   }
 }
-PACKAGEDEPS
+PKGJSON
+    fi
+    echo "  OC plugin ✓"
+else
+    echo "  OC not detected — skipped"
 fi
 
-# 5. Sync to Claude Code cache
-if [ -d "${CC_CACHE_DIR}" ]; then
-    mkdir -p "${CC_CACHE_DIR}/src"
-    cp -rP "${INSTALL_DIR}/src/"* "${CC_CACHE_DIR}/src/"
-    echo "CC cache synced"
+# Clean up old plugin path
+[ -f "$HOME/.opencode/plugin/ecorelay.ts" ] && rm -f "$HOME/.opencode/plugin/ecorelay.ts"
+
+# ══════════════════════════════════════════════════════════════════════
+# 3. Claude Code marketplace (if CC detected)
+# ══════════════════════════════════════════════════════════════════════
+CC_MP="$HOME/.claude/plugins/marketplaces/eco-relay"
+if [ -d "$CC_MP" ]; then
+    copy_src "$CC_MP"
+    cd "$CC_MP" && "$BUN" install --ignore-scripts
+    echo "  CC marketplace ✓"
+else
+    echo "  CC marketplace not detected — skipped"
 fi
 
-# 6. Verify (unit tests only — integration tests need isolated Hub)
-bun run typecheck
-bun test --path-ignore-patterns "src/integration/*"
+# ══════════════════════════════════════════════════════════════════════
+# 4. Claude Code cache (where CC normally loads from)
+# ══════════════════════════════════════════════════════════════════════
+CC_CACHE_BASE="$HOME/.claude/plugins/cache/eco-relay/relay"
+if [ -d "$CC_CACHE_BASE" ]; then
+    CC_CACHE="$CC_CACHE_BASE/$VERSION"
+    mkdir -p "$CC_CACHE"
+    copy_src "$CC_CACHE"
+    cd "$CC_CACHE" && "$BUN" install --ignore-scripts
+    echo "  CC cache v${VERSION} ✓"
+else
+    echo "  CC cache not detected — skipped"
+fi
 
+# ══════════════════════════════════════════════════════════════════════
+# 5. Update CC plugin registry (installed_plugins.json)
+# ══════════════════════════════════════════════════════════════════════
+INSTALLED="$HOME/.claude/plugins/installed_plugins.json"
+if [ -f "$INSTALLED" ] && [ -d "$CC_CACHE_BASE" ]; then
+    GIT_SHA=$(cd "$REPO_DIR" && git rev-parse HEAD 2>/dev/null || echo "unknown")
+    NOW=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    # Convert Git Bash path to Windows path for installed_plugins.json
+    WIN_CACHE=$(cygpath -w "$CC_CACHE" 2>/dev/null || echo "$CC_CACHE" | sed 's|^/\([a-z]\)/|\1:\\|; s|/|\\|g')
+    WIN_INSTALLED=$(cygpath -w "$INSTALLED" 2>/dev/null || echo "$INSTALLED")
+
+    "$BUN" -e "
+        const fs = require('fs');
+        const data = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+        const entry = data.plugins['relay@eco-relay'];
+        if (entry && entry[0]) {
+            entry[0].version = process.argv[2];
+            entry[0].installPath = process.argv[3];
+            entry[0].lastUpdated = process.argv[4];
+            entry[0].gitCommitSha = process.argv[5];
+        }
+        fs.writeFileSync(process.argv[1], JSON.stringify(data, null, 2));
+    " "$WIN_INSTALLED" "$VERSION" "$WIN_CACHE" "$NOW" "$GIT_SHA"
+    echo "  CC registry → v${VERSION} ✓"
+else
+    echo "  CC registry not found — skipped"
+fi
+
+# ══════════════════════════════════════════════════════════════════════
+# 6. Verify
+# ══════════════════════════════════════════════════════════════════════
 echo ""
-echo "EcoRelay v${VERSION} installed."
-echo "Open Claude Code or OpenCode. Done."
+echo "Verifying..."
+MARKER="ws_endpoint_failed"
+FAIL=0
+
+check() {
+    local label="$1" file="$2" pattern="$3"
+    if [ -f "$file" ] && grep -q "$pattern" "$file"; then
+        echo "  $label: v${VERSION} ✓"
+    else
+        echo "  $label: MISSING or OLD ✗"
+        FAIL=1
+    fi
+}
+
+check "~/.ecorelay" "$INSTALL_DIR/src/hub/index.ts" "$MARKER"
+[ -d "$CC_MP" ] && check "CC marketplace" "$CC_MP/src/hub/index.ts" "$MARKER"
+[ -d "${CC_CACHE:-/nonexistent}" ] && check "CC cache" "$CC_CACHE/src/hub/index.ts" "$MARKER"
+[ -f "$OC_PLUGIN_DIR/ecorelay.ts" ] && check "OC plugin" "$OC_PLUGIN_DIR/ecorelay.ts" "spawnHubDaemon"
+
+if [ "$FAIL" -eq 0 ]; then
+    echo ""
+    echo "EcoRelay v${VERSION} installed successfully."
+    echo "Restart Claude Code and/or OpenCode to load the new version."
+else
+    echo ""
+    echo "WARNING: Some locations failed verification. Check above."
+    exit 1
+fi

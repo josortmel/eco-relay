@@ -32,6 +32,7 @@
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
+        "@opencode-ai/plugin": "1.15.12",
         "@types/bun": "latest",
         "@types/eslint__js": "^9.14.0",
         "eslint": "^10.2.0",

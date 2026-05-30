@@ -71,16 +71,7 @@ if [ -d "${CC_CACHE_DIR}" ]; then
     echo "CC cache synced"
 fi
 
-# 5. Integrity hash
-if command -v sha256sum &>/dev/null; then
-    sha256sum "${INSTALL_DIR}/src/hub-daemon.ts" > "${INSTALL_DIR}/hub.sha256"
-elif command -v shasum &>/dev/null; then
-    shasum -a 256 "${INSTALL_DIR}/src/hub-daemon.ts" > "${INSTALL_DIR}/hub.sha256"
-else
-    echo "WARNING: no sha256sum/shasum found, skipping integrity hash"
-fi
-
-# 6. Verify (unit tests only — integration tests need isolated Hub)
+# 5. Verify (unit tests only — integration tests need isolated Hub)
 bun run typecheck
 bun test --ignore "src/integration/*"
 

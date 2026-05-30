@@ -1,7 +1,14 @@
-import { describe, expect, test, mock } from "bun:test";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, expect, mock, test } from "bun:test";
 import { server } from "./ecorelay";
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+function getTools(hooks: Awaited<ReturnType<typeof server>>) {
+    const t = hooks.tool;
+    if (!t) throw new Error("hooks.tool is undefined");
+    return t;
+}
 
 function mockSessionList(
     sessions: Array<{ id: string; title?: string | null; parentID?: string | null }> = [],
@@ -42,9 +49,9 @@ const mockCtx: Record<string, unknown> = {
 describe("Tool schema completeness", () => {
     test("19 tools registered with description and args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        expect(Object.keys(hooks.tool!).length).toBe(19);
+        expect(Object.keys(getTools(hooks)).length).toBe(19);
 
-        for (const [name, def] of Object.entries(hooks.tool!)) {
+        for (const [, def] of Object.entries(getTools(hooks))) {
             expect(typeof def.description).toBe("string");
             expect(def.description!.length).toBeGreaterThan(10);
             expect(typeof def.args).toBe("object");
@@ -76,8 +83,11 @@ describe("Tool schema completeness", () => {
     for (const { name, required } of expectedRequired) {
         test(`${name}: description and args present`, async () => {
             const hooks = await server((await mockPluginInput()) as any);
-            const tool = hooks.tool![name];
-            expect(tool).toBeDefined();
+            const tool = getTools(hooks)[name];
+            if (!tool) {
+                expect(tool).toBeDefined();
+                return;
+            }
             expect(typeof tool.description).toBe("string");
             expect(typeof tool.args).toBe("object");
             if (required.length > 0) {
@@ -91,26 +101,30 @@ describe("Tool schema completeness", () => {
 
     test("relay_send has optional reply_to and urgent", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_send;
+        const tool = getTools(hooks).relay_send;
+        if (!tool) throw new Error("tool not found");
         expect(Object.keys(tool.args)).toContain("reply_to");
         expect(Object.keys(tool.args)).toContain("urgent");
     });
 
     test("relay_broadcast has optional exclude_self", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_broadcast;
+        const tool = getTools(hooks).relay_broadcast;
+        if (!tool) throw new Error("tool not found");
         expect(Object.keys(tool.args)).toContain("exclude_self");
     });
 
     test("relay_group_create has members: array", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_group_create;
+        const tool = getTools(hooks).relay_group_create;
+        if (!tool) throw new Error("tool not found");
         expect(Object.keys(tool.args)).toContain("members");
     });
 
     test("relay_group_remove has reason: string", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_group_remove;
+        const tool = getTools(hooks).relay_group_remove;
+        if (!tool) throw new Error("tool not found");
         expect(Object.keys(tool.args)).toContain("reason");
     });
 });
@@ -121,10 +135,9 @@ describe("Tool argument validation", () => {
     test("relay_send: missing 'to' → bad_args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
         try {
-            const result = await hooks.tool!.relay_send.execute(
-                { text: "hello" } as any,
-                mockCtx as any,
-            );
+            const t = getTools(hooks).relay_send;
+            if (!t) throw new Error("tool not found");
+            const result = await t.execute({ text: "hello" } as any, mockCtx as any);
             const parsed = JSON.parse(result as string);
             expect(parsed.ok).toBe(false);
             expect(parsed.code).toBe("bad_args");
@@ -136,10 +149,9 @@ describe("Tool argument validation", () => {
     test("relay_send: missing 'text' → bad_args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
         try {
-            const result = await hooks.tool!.relay_send.execute(
-                { to: "peer1" } as any,
-                mockCtx as any,
-            );
+            const t = getTools(hooks).relay_send;
+            if (!t) throw new Error("tool not found");
+            const result = await t.execute({ to: "peer1" } as any, mockCtx as any);
             const parsed = JSON.parse(result as string);
             expect(parsed.ok).toBe(false);
             expect(parsed.code).toBe("bad_args");
@@ -151,10 +163,9 @@ describe("Tool argument validation", () => {
     test("relay_reply: missing 'ask_id' → bad_args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
         try {
-            const result = await hooks.tool!.relay_reply.execute(
-                { text: "response" } as any,
-                mockCtx as any,
-            );
+            const t = getTools(hooks).relay_reply;
+            if (!t) throw new Error("tool not found");
+            const result = await t.execute({ text: "response" } as any, mockCtx as any);
             const parsed = JSON.parse(result as string);
             expect(parsed.ok).toBe(false);
             expect(parsed.code).toBe("bad_args");
@@ -166,10 +177,9 @@ describe("Tool argument validation", () => {
     test("relay_broadcast: missing 'question' → bad_args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
         try {
-            const result = await hooks.tool!.relay_broadcast.execute(
-                {} as any,
-                mockCtx as any,
-            );
+            const t = getTools(hooks).relay_broadcast;
+            if (!t) throw new Error("tool not found");
+            const result = await t.execute({} as any, mockCtx as any);
             const parsed = JSON.parse(result as string);
             expect(parsed.ok).toBe(false);
             expect(parsed.code).toBe("bad_args");
@@ -184,33 +194,41 @@ describe("Tool argument validation", () => {
 describe("Tool → Hub message mapping", () => {
     test("relay_send has to/text in args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_send;
+        const tool = getTools(hooks).relay_send;
+        if (!tool) throw new Error("tool not found");
         expect(Object.keys(tool.args)).toContain("to");
         expect(Object.keys(tool.args)).toContain("text");
     });
 
     test("relay_rename has new_name in args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_rename;
+        const tool = getTools(hooks).relay_rename;
+        if (!tool) throw new Error("tool not found");
         expect(Object.keys(tool.args)).toContain("new_name");
     });
 
     test("relay_join has room in args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_join;
+        const tool = getTools(hooks).relay_join;
+        if (!tool) throw new Error("tool not found");
+        if (!tool) throw new Error("relay_join not found");
         expect(Object.keys(tool.args)).toContain("room");
     });
 
     test("relay_room has room and text in args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_room;
+        const tool = getTools(hooks).relay_room;
+        if (!tool) throw new Error("tool not found");
+        if (!tool) throw new Error("relay_room not found");
         expect(Object.keys(tool.args)).toContain("room");
         expect(Object.keys(tool.args)).toContain("text");
     });
 
     test("relay_group_send has group and text in args", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const tool = hooks.tool!.relay_group_send;
+        const tool = getTools(hooks).relay_group_send;
+        if (!tool) throw new Error("tool not found");
+        if (!tool) throw new Error("relay_group_send not found");
         expect(Object.keys(tool.args)).toContain("group");
         expect(Object.keys(tool.args)).toContain("text");
     });
@@ -220,12 +238,14 @@ describe("Tool → Hub message mapping", () => {
 
 describe("Tool error handling (no Hub running)", () => {
     test("relay_send throws when no Hub token available", async () => {
-        const hooks = await server((await mockPluginInput({
-            sessions: [{ id: "test-session", title: "Test Session" }],
-        })) as any);
+        const hooks = await server(
+            (await mockPluginInput({
+                sessions: [{ id: "test-session", title: "Test Session" }],
+            })) as any,
+        );
 
         await expect(
-            hooks.tool!.relay_send.execute(
+            getTools(hooks).relay_send!.execute(
                 { to: "peer1", text: "hello" } as any,
                 mockCtx as any,
             ),
@@ -238,7 +258,7 @@ describe("Tool error handling (no Hub running)", () => {
 describe("Channel CC equivalence", () => {
     test("relay_send has same params as Channel CC", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const keys = Object.keys(hooks.tool!.relay_send.args);
+        const keys = Object.keys(getTools(hooks).relay_send!.args);
         expect(keys).toContain("to");
         expect(keys).toContain("text");
         expect(keys).toContain("reply_to");
@@ -247,14 +267,14 @@ describe("Channel CC equivalence", () => {
 
     test("relay_inbox has same params as Channel CC", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        const keys = Object.keys(hooks.tool!.relay_inbox.args);
+        const keys = Object.keys(getTools(hooks).relay_inbox!.args);
         expect(keys).toContain("limit");
         expect(keys).toContain("since_id");
     });
 
     test("all 19 tools have execute function", async () => {
         const hooks = await server((await mockPluginInput()) as any);
-        for (const [name, def] of Object.entries(hooks.tool!)) {
+        for (const [, def] of Object.entries(getTools(hooks))) {
             expect(typeof def.execute).toBe("function");
         }
     });
